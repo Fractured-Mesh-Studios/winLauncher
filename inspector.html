@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: sans-serif; color: #ccc; background: #2d2d2d; padding: 10px; font-size: 13px; }
+    .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+    button { padding: 6px 12px; background: #0078d4; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #106ebe; }
+    .dropdown-wrap { position: relative; width: 100%; }
+    .dropdown-btn {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px;
+      background: #1e1e1e;
+      border: 1px solid #444;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .dropdown-btn .label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 92%;
+    }
+    .dropdown-menu {
+      position: absolute;
+      z-index: 100;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 280px;
+      overflow-y: auto;
+      background: #1e1e1e;
+      border: 1px solid #444;
+      border-radius: 4px;
+      display: none;
+    }
+    .dropdown-menu.open { display: block; }
+    .dropdown-search-wrap {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 8px;
+      background: #1e1e1e;
+      border-bottom: 1px solid #333;
+    }
+    .dropdown-search {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 7px 8px;
+      background: #141414;
+      border: 1px solid #444;
+      color: #fff;
+      border-radius: 4px;
+      outline: none;
+    }
+    .dropdown-search:focus {
+      border-color: #5c92c9;
+    }
+    .dropdown-items {
+      width: 100%;
+    }
+    .app-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 8px;
+      border: 0;
+      border-bottom: 1px solid #333;
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+      text-align: left;
+    }
+    .app-item:last-child { border-bottom: 0; }
+    .app-item:hover { background: #2a2a2a; }
+    .app-item.active { background: #2f3b4a; }
+    .app-item.disabled { opacity: 0.7; cursor: default; }
+    .app-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      flex: 0 0 auto;
+      background: #111;
+    }
+    .app-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .status { margin-top: 8px; font-size: 11px; color: #9ad0ff; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <label>Installed program:</label>
+  <div class="row">
+    <div class="dropdown-wrap">
+      <button id="appDropdownBtn" class="dropdown-btn" type="button">
+        <span class="label" id="appDropdownLabel">Select a program</span>
+        <span>▾</span>
+      </button>
+      <div id="appDropdownMenu" class="dropdown-menu"></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <button id="refreshBtn">Refresh list</button>
+    <button id="browseBtn">Browse manually...</button>
+  </div>
+
+  <div class="status" id="statusText">Loading programs...</div>
+
+  <script>
+    let websocket = null;
+    let uuid = null;
+    let actionInfo = {};
+    let appItems = [];
+    let appSearchTerm = '';
+    const iconCache = new Map();
+
+    const FALLBACK_ICON = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3QgeD0iMSIgeT0iMSIgd2lkdGg9IjMwIiBoZWlnaHQ9IjMwIiByeD0iNiIgZmlsbD0iIzFlMWUxZSIgc3Ryb2tlPSIjNDQ0Ii8+PHBhdGggZD0iTTEwIDEwSDE0VjIySDEwVjEwWk0xOCAxMEgyMlYyMkgxOFYxMFoiIGZpbGw9IiM4OGFhY2MiLz48L3N2Zz4=';
+
+    function setStatus(text) {
+      document.getElementById('statusText').textContent = text;
+    }
+
+    function setDropdownLabel(text) {
+      document.getElementById('appDropdownLabel').textContent = text;
+    }
+
+    function toggleDropdown(open) {
+      const menu = document.getElementById('appDropdownMenu');
+      const willOpen = typeof open === 'boolean' ? open : !menu.classList.contains('open');
+      if (typeof open === 'boolean') {
+        menu.classList.toggle('open', open);
+      } else {
+        menu.classList.toggle('open');
+      }
+
+      if (willOpen) {
+        requestAnimationFrame(() => {
+          const searchInput = document.getElementById('appSearchInput');
+          if (searchInput) {
+            searchInput.focus();
+            searchInput.select();
+          }
+        });
+      }
+    }
+
+    function updateDropdownSelectionUI(selectedPath) {
+      const menu = document.getElementById('appDropdownMenu');
+      const nodes = menu.querySelectorAll('.app-item');
+      nodes.forEach((node) => {
+        node.classList.toggle('active', node.dataset.path === selectedPath);
+      });
+    }
+
+    function requestAppIcon(appPath, iconSource) {
+      if (!websocket || !uuid || !appPath || iconCache.has(appPath)) {
+        return;
+      }
+
+      websocket.send(JSON.stringify({
+        action: actionInfo.action,
+        event: 'sendToPlugin',
+        context: uuid,
+        payload: {
+          command: 'getAppIcon',
+          appPath,
+          iconSource: iconSource || appPath
+        }
+      }));
+    }
+
+    function selectApp(appPath, appName, save) {
+      if (!appPath) {
+        return;
+      }
+
+      const selectedEntry = appItems.find((entry) => entry.Path === appPath);
+      const iconSource = selectedEntry?.IconSource || appPath;
+
+      setDropdownLabel(appName || appPath);
+      updateDropdownSelectionUI(appPath);
+      toggleDropdown(false);
+
+      if (save) {
+        saveSettings(appPath, iconSource);
+        setStatus('Program selected');
+      }
+    }
+
+    function renderDropdownItems() {
+      const menu = document.getElementById('appDropdownMenu');
+      menu.innerHTML = '';
+
+      const searchWrap = document.createElement('div');
+      searchWrap.className = 'dropdown-search-wrap';
+      const searchInput = document.createElement('input');
+      searchInput.id = 'appSearchInput';
+      searchInput.className = 'dropdown-search';
+      searchInput.type = 'text';
+      searchInput.placeholder = 'Search program by name...';
+      searchInput.value = appSearchTerm;
+      searchInput.addEventListener('click', (event) => event.stopPropagation());
+      searchInput.addEventListener('keydown', (event) => event.stopPropagation());
+      searchInput.addEventListener('input', (event) => {
+        appSearchTerm = event.target.value || '';
+        renderDropdownItems();
+      });
+      searchWrap.appendChild(searchInput);
+      menu.appendChild(searchWrap);
+
+      const itemsContainer = document.createElement('div');
+      itemsContainer.className = 'dropdown-items';
+      menu.appendChild(itemsContainer);
+
+      const filteredItems = appItems.filter((app) => {
+        if (!appSearchTerm) {
+          return true;
+        }
+        return String(app.Name || '').toLowerCase().includes(appSearchTerm.toLowerCase());
+      });
+
+      if (!appItems || appItems.length === 0) {
+        const empty = document.createElement('button');
+        empty.type = 'button';
+        empty.className = 'app-item disabled';
+        empty.disabled = true;
+        empty.innerHTML = `<img class="app-icon" src="${FALLBACK_ICON}" alt="" /><span class="app-name">No programs found</span>`;
+        itemsContainer.appendChild(empty);
+        setDropdownLabel('Select a program');
+        setStatus('No installed programs found');
+        return;
+      }
+
+      if (filteredItems.length === 0) {
+        const empty = document.createElement('button');
+        empty.type = 'button';
+        empty.className = 'app-item disabled';
+        empty.disabled = true;
+        empty.innerHTML = `<img class="app-icon" src="${FALLBACK_ICON}" alt="" /><span class="app-name">No matching programs</span>`;
+        itemsContainer.appendChild(empty);
+      }
+
+      filteredItems.forEach((app) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'app-item';
+        item.dataset.path = app.Path;
+        item.innerHTML = `<img class="app-icon" src="${iconCache.get(app.Path) || FALLBACK_ICON}" alt="" /><span class="app-name"></span>`;
+        item.querySelector('.app-name').textContent = app.Name;
+        item.addEventListener('click', () => {
+          selectApp(app.Path, app.Name, true);
+        });
+        itemsContainer.appendChild(item);
+      });
+
+      const currentPath = actionInfo.payload?.settings?.appPath;
+      if (currentPath) {
+        const current = appItems.find((entry) => entry.Path === currentPath);
+        selectApp(currentPath, current?.Name || currentPath, false);
+      } else {
+        setDropdownLabel('Select a program');
+      }
+
+      setStatus(`${filteredItems.length} of ${appItems.length} programs`);
+    }
+
+    function populateAppList(apps) {
+      appItems = Array.isArray(apps) ? apps : [];
+      appSearchTerm = '';
+      renderDropdownItems();
+
+      appItems.forEach((app, index) => {
+        setTimeout(() => requestAppIcon(app.Path, app.IconSource), index * 10);
+      });
+    }
+
+    function saveSettings(appPath, iconSource) {
+      if (!websocket || !uuid) return;
+      websocket.send(JSON.stringify({
+        event: 'setSettings',
+        context: uuid,
+        payload: {
+          appPath,
+          appIconSource: iconSource || appPath
+        }
+      }));
+
+      websocket.send(JSON.stringify({
+        action: actionInfo.action,
+        event: 'sendToPlugin',
+        context: uuid,
+        payload: {
+          command: 'refreshIcon',
+          appPath,
+          iconSource: iconSource || appPath
+        }
+      }));
+    }
+
+    function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegisterEvent, inInfo, inActionInfo) {
+      uuid = inPropertyInspectorUUID;
+      actionInfo = JSON.parse(inActionInfo);
+
+      websocket = new WebSocket(`ws://127.0.0.1:${inPort}`);
+      websocket.onopen = () => {
+        websocket.send(JSON.stringify({ event: inRegisterEvent, uuid }));
+        websocket.send(JSON.stringify({
+          action: actionInfo.action,
+          event: 'sendToPlugin',
+          context: uuid,
+          payload: { command: 'listApps' }
+        }));
+      };
+
+      websocket.onmessage = (evt) => {
+        const msg = JSON.parse(evt.data);
+
+        if (msg.event === 'sendToPropertyInspector' && msg.payload?.selectedPath) {
+          const appPath = msg.payload.selectedPath;
+          const existing = appItems.find((entry) => entry.Path === appPath);
+          if (!existing) {
+            appItems.push({
+              Name: appPath.split('\\').pop() || appPath,
+              Path: appPath
+            });
+            renderDropdownItems();
+          }
+
+          const selected = appItems.find((entry) => entry.Path === appPath);
+          selectApp(appPath, selected?.Name || appPath, false);
+          saveSettings(appPath, appPath);
+          requestAppIcon(appPath, appPath);
+          setStatus('Path selected manually');
+        }
+
+        if (msg.event === 'sendToPropertyInspector' && Array.isArray(msg.payload?.apps)) {
+          populateAppList(msg.payload.apps);
+        }
+
+        if (msg.event === 'sendToPropertyInspector' && msg.payload?.appPath && msg.payload?.appIcon) {
+          iconCache.set(msg.payload.appPath, msg.payload.appIcon);
+          const iconNodes = document.querySelectorAll('.app-item');
+          iconNodes.forEach((node) => {
+            if (node.dataset.path === msg.payload.appPath) {
+              const image = node.querySelector('.app-icon');
+              if (image) {
+                image.src = msg.payload.appIcon;
+              }
+            }
+          });
+        }
+      };
+
+      document.getElementById('appDropdownBtn').addEventListener('click', () => {
+        toggleDropdown();
+      });
+
+      document.addEventListener('click', (event) => {
+        const wrap = document.querySelector('.dropdown-wrap');
+        if (!wrap.contains(event.target)) {
+          toggleDropdown(false);
+        }
+      });
+
+      document.getElementById('refreshBtn').addEventListener('click', () => {
+        websocket.send(JSON.stringify({
+          action: actionInfo.action,
+          event: 'sendToPlugin',
+          context: uuid,
+          payload: { command: 'listApps' }
+        }));
+        setStatus('Refreshing list...');
+      });
+
+      document.getElementById('browseBtn').addEventListener('click', () => {
+        websocket.send(JSON.stringify({
+          action: actionInfo.action,
+          event: 'sendToPlugin',
+          context: uuid,
+          payload: { command: 'browse' }
+        }));
+      });
+    }
+  </script>
+</body>
+</html>
