@@ -4,7 +4,12 @@
   "description": "",
   "main": "plugin.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "npm run build:win",
+    "build:win": "pkg plugin.js --targets node18-win-x64 --output com.local.winlauncher-win.exe",
+    "prepare:opendeck": "npm run package",
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package.ps1",
+    "clean": "powershell -NoProfile -Command \"if (Test-Path com.local.winlauncher-win.exe) { Remove-Item com.local.winlauncher-win.exe -Force }\""
   },
   "keywords": [],
   "author": "",
@@ -17,5 +22,8 @@
   },
   "dependencies": {
     "ws": "^8.22.2"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
   }
 }

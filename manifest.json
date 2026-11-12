@@ -5,17 +5,14 @@
   "Version": "1.1.0",
   "UUID": "com.local.winlauncher",
   "Name": "Windows App Launcher",
-  "Version": "1.0.0",
-  "Author": "Custom",
   "Description": "Launch Windows programs and shortcuts with a visual picker.",
-  "Category": "Windows",
+  "Author": "Custom",
+  "Version": "1.0.0",
+  "UUID": "com.local.winlauncher",
+  "PluginUUID": "com.local.winlauncher",
+  "CodePathWin": "com.local.winlauncher-win.exe",
   "Icon": "icon",
-  "CodePath": "plugin.cmd",
-  "PropertyInspectorPath": "inspector.html",
-  "SDKVersion": 2,
-  "Software": {
-    "MinimumVersion": "6.0"
-  },
+  "Category": "Windows",
   "OS": [
     {
       "Platform": "windows",
@@ -34,5 +31,10 @@
         }
       ]
     }
-  ]
+  ],
+  "PropertyInspectorPath": "inspector.html",
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "6.0"
+  }
 }
