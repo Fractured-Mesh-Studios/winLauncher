@@ -95,6 +95,19 @@
       white-space: nowrap;
     }
     .status { margin-top: 8px; font-size: 11px; color: #9ad0ff; min-height: 16px; }
+    .path-wrap { margin-top: 8px; }
+    .path-label { font-size: 11px; color: #9aa7b2; margin-bottom: 4px; }
+    .path-value {
+      min-height: 30px;
+      padding: 6px 8px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #1e1e1e;
+      color: #d8d8d8;
+      font-size: 11px;
+      line-height: 1.35;
+      word-break: break-all;
+    }
   </style>
 </head>
 <body>
@@ -112,6 +125,11 @@
   <div class="row">
     <button id="refreshBtn">Refresh list</button>
     <button id="browseBtn">Browse manually...</button>
+  </div>
+
+  <div class="path-wrap">
+    <div class="path-label">Target path:</div>
+    <div class="path-value" id="targetPathText">No program selected</div>
   </div>
 
   <div class="status" id="statusText">Loading programs...</div>
@@ -132,6 +150,10 @@
 
     function setDropdownLabel(text) {
       document.getElementById('appDropdownLabel').textContent = text;
+    }
+
+    function setTargetPath(pathValue) {
+      document.getElementById('targetPathText').textContent = pathValue || 'No program selected';
     }
 
     function toggleDropdown(open) {
@@ -162,8 +184,19 @@
       });
     }
 
-    function requestAppIcon(appPath, iconSource) {
-      if (!websocket || !uuid || !appPath || iconCache.has(appPath)) {
+    function requestAppIcon(appPath, iconSource, options = {}) {
+      const forceRefresh = Boolean(options.forceRefresh);
+      const priority = Boolean(options.priority);
+
+      if (!websocket || !uuid || !appPath) {
+        return;
+      }
+
+      if (forceRefresh) {
+        iconCache.delete(appPath);
+      }
+
+      if (!forceRefresh && iconCache.has(appPath)) {
         return;
       }
 
@@ -174,7 +207,9 @@
         payload: {
           command: 'getAppIcon',
           appPath,
-          iconSource: iconSource || appPath
+          iconSource: iconSource || appPath,
+          forceRefresh,
+          priority
         }
       }));
     }
@@ -188,11 +223,12 @@
       const iconSource = selectedEntry?.IconSource || appPath;
 
       setDropdownLabel(appName || appPath);
+      setTargetPath(appPath);
       updateDropdownSelectionUI(appPath);
       toggleDropdown(false);
 
       if (save) {
-        saveSettings(appPath, iconSource);
+        saveSettings(appPath, iconSource, { forceRefresh: true, priority: true });
         setStatus('Program selected');
       }
     }
@@ -237,6 +273,7 @@
         empty.innerHTML = `<img class="app-icon" src="${FALLBACK_ICON}" alt="" /><span class="app-name">No programs found</span>`;
         itemsContainer.appendChild(empty);
         setDropdownLabel('Select a program');
+        setTargetPath('');
         setStatus('No installed programs found');
         return;
       }
@@ -259,6 +296,7 @@
         item.querySelector('.app-name').textContent = app.Name;
         item.addEventListener('click', () => {
           selectApp(app.Path, app.Name, true);
+          requestAppIcon(app.Path, app.IconSource, { forceRefresh: true, priority: true });
         });
         itemsContainer.appendChild(item);
       });
@@ -269,6 +307,7 @@
         selectApp(currentPath, current?.Name || currentPath, false);
       } else {
         setDropdownLabel('Select a program');
+        setTargetPath('');
       }
 
       setStatus(`${filteredItems.length} of ${appItems.length} programs`);
@@ -284,8 +323,11 @@
       });
     }
 
-    function saveSettings(appPath, iconSource) {
+    function saveSettings(appPath, iconSource, options = {}) {
       if (!websocket || !uuid) return;
+      const forceRefresh = Boolean(options.forceRefresh);
+      const priority = Boolean(options.priority);
+
       websocket.send(JSON.stringify({
         event: 'setSettings',
         context: uuid,
@@ -302,7 +344,9 @@
         payload: {
           command: 'refreshIcon',
           appPath,
-          iconSource: iconSource || appPath
+          iconSource: iconSource || appPath,
+          forceRefresh,
+          priority
         }
       }));
     }
@@ -338,8 +382,8 @@
 
           const selected = appItems.find((entry) => entry.Path === appPath);
           selectApp(appPath, selected?.Name || appPath, false);
-          saveSettings(appPath, appPath);
-          requestAppIcon(appPath, appPath);
+          saveSettings(appPath, appPath, { forceRefresh: true, priority: true });
+          requestAppIcon(appPath, appPath, { forceRefresh: true, priority: true });
           setStatus('Path selected manually');
         }
 

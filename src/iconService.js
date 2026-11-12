@@ -1,26 +1,93 @@
+const path = require('path');
+const { Worker } = require('worker_threads');
+
 function createIconService({ runPowerShell, resolveLaunchTarget, setKeyImage }) {
   const appIconCache = new Map();
+  const inflightRequests = new Map();
+  const extractionQueue = [];
+  let isExtracting = false;
+  const workerCallbacks = new Map();
+  let workerRequestId = 0;
+  let iconWorker = null;
+  let workerDisabled = false;
 
-  function getAppIconDataUrl(targetPath, size, callback) {
+  function settleWorkerCallbacksWithNull() {
+    workerCallbacks.forEach((callback) => callback(null));
+    workerCallbacks.clear();
+  }
+
+  function ensureWorker() {
+    if (iconWorker || workerDisabled) {
+      return;
+    }
+
+    try {
+      iconWorker = new Worker(path.join(__dirname, 'iconWorker.js'));
+
+      iconWorker.on('message', (message) => {
+        const callback = workerCallbacks.get(message?.id);
+        if (!callback) {
+          return;
+        }
+
+        workerCallbacks.delete(message.id);
+        callback(message?.dataUrl || null);
+      });
+
+      iconWorker.on('error', () => {
+        workerDisabled = true;
+        settleWorkerCallbacksWithNull();
+        iconWorker = null;
+      });
+
+      iconWorker.on('exit', (code) => {
+        if (code !== 0) {
+          workerDisabled = true;
+        }
+        settleWorkerCallbacksWithNull();
+        iconWorker = null;
+      });
+    } catch {
+      workerDisabled = true;
+      iconWorker = null;
+    }
+  }
+
+  function flushInflight(cacheKey, dataUrl) {
+    const callbacks = inflightRequests.get(cacheKey) || [];
+    inflightRequests.delete(cacheKey);
+    callbacks.forEach((callback) => callback(dataUrl));
+  }
+
+  function getCacheKey(targetPath, size) {
+    return `${size}|${targetPath}`;
+  }
+
+  function clearIconCacheForPath(targetPath) {
     if (!targetPath) {
-      callback(null);
       return;
     }
 
     const cleaned = String(targetPath).trim().replace(/^"|"$/g, '');
-    if (!cleaned || cleaned.startsWith('appx:')) {
-      callback(null);
+    if (!cleaned) {
       return;
     }
 
-    const cacheKey = `${size}|${cleaned}`;
-    const cached = appIconCache.get(cacheKey);
-    if (cached) {
-      callback(cached);
+    Array.from(appIconCache.keys()).forEach((cacheKey) => {
+      if (cacheKey.endsWith(`|${cleaned}`)) {
+        appIconCache.delete(cacheKey);
+      }
+    });
+  }
+
+  function runNextExtraction() {
+    if (isExtracting || extractionQueue.length === 0) {
       return;
     }
 
-    const candidate = resolveLaunchTarget(cleaned) || cleaned;
+    isExtracting = true;
+    const job = extractionQueue.shift();
+    const { cacheKey, candidate, size } = job;
     const escaped = candidate.replace(/'/g, "''");
 
     const psScript = `
@@ -112,36 +179,103 @@ public static class IconNative {
   `;
 
     runPowerShell(psScript, (err, stdout) => {
-      if (err) {
-        callback(null);
-        return;
+      const base64 = err ? '' : (stdout || '').trim();
+      const dataUrl = base64 ? `data:image/png;base64,${base64}` : null;
+
+      if (dataUrl) {
+        appIconCache.set(cacheKey, dataUrl);
       }
 
-      const base64 = (stdout || '').trim();
-      if (!base64) {
-        callback(null);
-        return;
-      }
-
-      const dataUrl = `data:image/png;base64,${base64}`;
-      appIconCache.set(cacheKey, dataUrl);
-      callback(dataUrl);
+      flushInflight(cacheKey, dataUrl);
+      isExtracting = false;
+      runNextExtraction();
     });
   }
 
-  function updateKeyImage(context, targetPath, iconSource, launchIconSourceCache) {
+  function getAppIconDataUrl(targetPath, size, callback, options = {}) {
+    if (!targetPath) {
+      callback(null);
+      return;
+    }
+
+    const cleaned = String(targetPath).trim().replace(/^"|"$/g, '');
+    if (!cleaned || cleaned.startsWith('appx:')) {
+      callback(null);
+      return;
+    }
+
+    const forceRefresh = Boolean(options.forceRefresh);
+    const priority = Boolean(options.priority);
+    const cacheKey = getCacheKey(cleaned, size);
+
+    if (forceRefresh) {
+      appIconCache.delete(cacheKey);
+    }
+
+    const cached = appIconCache.get(cacheKey);
+    if (cached && !forceRefresh) {
+      callback(cached);
+      return;
+    }
+
+    ensureWorker();
+    if (iconWorker && !workerDisabled) {
+      const requestId = ++workerRequestId;
+      workerCallbacks.set(requestId, (dataUrl) => {
+        if (dataUrl) {
+          appIconCache.set(cacheKey, dataUrl);
+        }
+        callback(dataUrl);
+      });
+
+      try {
+        iconWorker.postMessage({
+          id: requestId,
+          targetPath: cleaned,
+          size: Number(size) || 144,
+          forceRefresh,
+          priority
+        });
+        return;
+      } catch {
+        workerCallbacks.delete(requestId);
+      }
+    }
+
+    const queuedCallbacks = inflightRequests.get(cacheKey);
+    if (queuedCallbacks) {
+      queuedCallbacks.push(callback);
+      return;
+    }
+
+    inflightRequests.set(cacheKey, [callback]);
+
+    const candidate = resolveLaunchTarget(cleaned) || cleaned;
+    if (priority) {
+      extractionQueue.unshift({ cacheKey, candidate, size });
+    } else {
+      extractionQueue.push({ cacheKey, candidate, size });
+    }
+    runNextExtraction();
+  }
+
+  function updateKeyImage(context, targetPath, iconSource, launchIconSourceCache, options = {}) {
     if (!context || !targetPath) {
       return;
     }
 
     const iconTarget = iconSource || launchIconSourceCache.get(targetPath) || targetPath;
+    if (options.forceRefresh) {
+      clearIconCacheForPath(iconTarget);
+    }
+
     getAppIconDataUrl(iconTarget, 144, (dataUrl) => {
       if (!dataUrl) {
         return;
       }
 
       setKeyImage(context, dataUrl);
-    });
+    }, options);
   }
 
   return {

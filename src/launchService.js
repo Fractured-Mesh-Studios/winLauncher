@@ -1,6 +1,22 @@
 const { spawn } = require('child_process');
 
 function createLaunchService({ runPowerShell, resolveLaunchTarget }) {
+  function launchStoreAppByShell(appId) {
+    const shellTarget = `shell:AppsFolder\\${appId}`;
+
+    const explorerChild = spawn('explorer.exe', [shellTarget], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true
+    });
+
+    explorerChild.on('error', () => {
+      launchByShellStart(shellTarget, () => {});
+    });
+
+    explorerChild.unref();
+  }
+
   function launchByPowerShell(target) {
     const escaped = String(target).replace(/'/g, "''");
     const psScript = `
@@ -8,9 +24,37 @@ function createLaunchService({ runPowerShell, resolveLaunchTarget }) {
     $target = '${escaped}'
 
     if ($target.StartsWith('appx:')) {
-      $appId = $target.Substring(5)
-      Start-Process -FilePath ("shell:AppsFolder\\" + $appId)
-      exit 0
+      $appId = $target.Substring(5).Trim()
+      if (-not $appId) { exit 1 }
+
+      $shellPath = "shell:AppsFolder\\$appId"
+      $launched = $false
+
+      try {
+        Start-Process -FilePath 'explorer.exe' -ArgumentList $shellPath -ErrorAction Stop
+        $launched = $true
+      } catch {
+      }
+
+      if (-not $launched) {
+        try {
+          Start-Process -FilePath $shellPath -ErrorAction Stop
+          $launched = $true
+        } catch {
+        }
+      }
+
+      if (-not $launched) {
+        try {
+          $shell = New-Object -ComObject Shell.Application
+          $shell.Open($shellPath)
+          $launched = $true
+        } catch {
+        }
+      }
+
+      if ($launched) { exit 0 }
+      exit 1
     }
 
     Start-Process -FilePath $target
@@ -111,7 +155,12 @@ function createLaunchService({ runPowerShell, resolveLaunchTarget }) {
     }
 
     if (cleaned.startsWith('appx:')) {
-      launchByPowerShell(cleaned);
+      const appId = cleaned.substring(5).trim();
+      if (!appId) {
+        return;
+      }
+
+      launchStoreAppByShell(appId);
       return;
     }
 

@@ -33,8 +33,8 @@ const { getInstalledApps } = createAppsService({
   runPowerShell
 });
 
-function refreshKeyImage(context, appPath, appIconSource) {
-  updateKeyImage(context, appPath, appIconSource, launchIconSourceCache);
+function refreshKeyImage(context, appPath, appIconSource, options = {}) {
+  updateKeyImage(context, appPath, appIconSource, launchIconSourceCache, options);
 }
 
 function sendInstalledApps(context, action) {
@@ -52,6 +52,8 @@ function sendInstalledApps(context, action) {
 function handleGetAppIcon(msg) {
   const appPath = msg.payload?.appPath;
   const iconSource = msg.payload?.iconSource || appPath;
+  const forceRefresh = Boolean(msg.payload?.forceRefresh);
+  const priority = Boolean(msg.payload?.priority);
 
   if (appPath && iconSource) {
     launchIconSourceCache.set(appPath, iconSource);
@@ -62,7 +64,7 @@ function handleGetAppIcon(msg) {
       appPath,
       appIcon: iconDataUrl || null
     });
-  });
+  }, { forceRefresh, priority });
 }
 
 function handleBrowse(msg) {
@@ -103,7 +105,10 @@ ws.on('message', (data) => {
   if (msg.event === 'sendToPlugin' && msg.payload?.command === 'refreshIcon') {
     const appPath = msg.payload?.appPath || settingsCache[msg.context]?.appPath;
     const appIconSource = msg.payload?.iconSource || settingsCache[msg.context]?.appIconSource;
-    refreshKeyImage(msg.context, appPath, appIconSource);
+    refreshKeyImage(msg.context, appPath, appIconSource, {
+      forceRefresh: Boolean(msg.payload?.forceRefresh),
+      priority: Boolean(msg.payload?.priority)
+    });
   }
 
   if (msg.event === 'sendToPlugin' && msg.payload?.command === 'getAppIcon') {

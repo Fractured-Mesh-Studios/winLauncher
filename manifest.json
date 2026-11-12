@@ -1,4 +1,8 @@
 {
+  "Name": "Windows App Launcher",
+  "Description": "Launch Windows programs and shortcuts with a visual picker.",
+  "Author": "Custom",
+  "Version": "1.1.0",
   "UUID": "com.local.winlauncher",
   "Name": "Windows App Launcher",
   "Version": "1.0.0",
