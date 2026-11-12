@@ -147,3 +147,13 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+com.local.winlauncher-win.exe
+release/com.local.winlauncher.sdPlugin.zip
+release/com.local.winlauncher.sdPlugin/.gitignore
+release/com.local.winlauncher.sdPlugin/com.local.winlauncher-win.exe
+release/com.local.winlauncher.sdPlugin/icon.png
+release/com.local.winlauncher.sdPlugin/icon@2x.png
+release/com.local.winlauncher.sdPlugin/inspector.html
+release/com.local.winlauncher.sdPlugin/LICENSE
+release/com.local.winlauncher.sdPlugin/manifest.json
+release/com.local.winlauncher.sdPlugin/README.md

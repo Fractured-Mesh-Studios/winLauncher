@@ -74,8 +74,8 @@ npm run package
 This command:
 
 - Rebuilds `com.local.winlauncher-win.exe`
-- Creates `release/com.local.winlauncher.sdPlugin/` (staging folder)
-- Creates `release/com.local.winlauncher.sdPlugin.zip` (installable archive)
+- Creates `release/<UUID>.sdPlugin/` (staging folder, from `manifest.json`)
+- Creates `release/<UUID>.sdPlugin.zip` (installable archive)
 
 Available scripts:
 
@@ -122,7 +122,7 @@ npm run package
 
 Use the generated archive:
 
-- `release/com.local.winlauncher.sdPlugin.zip`
+- `release/<UUID>.sdPlugin.zip`
 
 Alternative manual method:
 

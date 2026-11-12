@@ -1,5 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $projectRoot
 
@@ -27,7 +30,7 @@ if (-not (Test-Path $exePath)) {
 }
 
 $releaseRoot = Join-Path $projectRoot 'release'
-$pluginFolderName = Split-Path $projectRoot -Leaf
+$pluginFolderName = if ($manifest.UUID) { "$($manifest.UUID).sdPlugin" } else { "$(Split-Path $projectRoot -Leaf).sdPlugin" }
 $stagingDir = Join-Path $releaseRoot $pluginFolderName
 $zipPath = Join-Path $releaseRoot "$pluginFolderName.zip"
 
@@ -64,7 +67,32 @@ foreach ($item in $itemsToCopy) {
     Copy-Item -Path $item.FullName -Destination $destination -Recurse -Force
 }
 
-Compress-Archive -Path (Join-Path $stagingDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
+$zipArchive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    [void]$zipArchive.CreateEntry("$pluginFolderName/")
+
+    $sourceRoot = Split-Path $stagingDir -Parent
+    $files = Get-ChildItem -Path $stagingDir -Recurse -File
+
+    foreach ($file in $files) {
+        $relativePath = $file.FullName.Substring($sourceRoot.Length).TrimStart([char[]]@('\', '/'))
+        $entryName = $relativePath -replace '\\', '/'
+
+        $entry = $zipArchive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+        $entryStream = $entry.Open()
+        $fileStream = [System.IO.File]::OpenRead($file.FullName)
+        try {
+            $fileStream.CopyTo($entryStream)
+        }
+        finally {
+            $fileStream.Dispose()
+            $entryStream.Dispose()
+        }
+    }
+}
+finally {
+    $zipArchive.Dispose()
+}
 
 Write-Host ""
 Write-Host "Release created successfully:"
