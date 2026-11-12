@@ -1,15 +1,10 @@
 {
   "Name": "Windows App Launcher",
   "Description": "Launch Windows programs and shortcuts with a visual picker.",
-  "Author": "Custom",
-  "Version": "1.1.0",
-  "UUID": "com.local.winlauncher",
-  "Name": "Windows App Launcher",
-  "Description": "Launch Windows programs and shortcuts with a visual picker.",
-  "Author": "Custom",
-  "Version": "1.0.0",
-  "UUID": "com.local.winlauncher",
-  "PluginUUID": "com.local.winlauncher",
+  "Author": "FMS",
+  "Version": "1.1.1",
+  "UUID": "com.fms.winlauncher",
+  "PluginUUID": "com.fms.winlauncher",
   "CodePathWin": "com.local.winlauncher-win.exe",
   "Icon": "icon",
   "Category": "Windows",
@@ -22,7 +17,7 @@
   "Actions": [
     {
       "Name": "Open Program",
-      "UUID": "com.local.winlauncher.open",
+      "UUID": "com.fms.winlauncher.open",
       "Icon": "icon",
       "Tooltip": "Select and launch a file or program",
       "States": [

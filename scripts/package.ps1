@@ -6,6 +6,9 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $projectRoot
 
+$packageJsonPath = Join-Path $projectRoot 'package.json'
+$packageJson = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+
 $manifestPath = Join-Path $projectRoot 'manifest.json'
 if (-not (Test-Path $manifestPath)) {
     throw "manifest.json was not found in project root."
@@ -16,9 +19,25 @@ if (-not $manifest.CodePathWin) {
     throw "manifest.json is missing CodePathWin."
 }
 
+$packageVersion = [string]$packageJson.version
+$manifestVersion = [string]$manifest.Version
+
+if (-not $packageVersion) {
+    throw "package.json is missing version."
+}
+
+if (-not $manifestVersion) {
+    throw "manifest.json is missing Version."
+}
+
+if ($packageVersion -ne $manifestVersion) {
+    throw "Version mismatch: package.json ($packageVersion) != manifest.json ($manifestVersion)."
+}
+
 $exeName = [string]$manifest.CodePathWin
 $exePath = Join-Path $projectRoot $exeName
 
+Write-Host "Packaging version $packageVersion..."
 Write-Host "Building Windows executable..."
 npm run build:win
 if ($LASTEXITCODE -ne 0) {
@@ -96,6 +115,7 @@ finally {
 
 Write-Host ""
 Write-Host "Release created successfully:"
+Write-Host "- Version: $packageVersion"
 Write-Host "- Staging folder: $stagingDir"
 Write-Host "- Installable ZIP: $zipPath"
 Write-Host ""
